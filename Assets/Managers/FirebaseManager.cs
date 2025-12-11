@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using Firebase;
@@ -25,10 +24,7 @@ public class FirebaseManager : MonoBehaviour
             DontDestroyOnLoad(gameObject);
             InitializeFirebase();
         }
-        else
-        {
-            Destroy(gameObject);
-        }
+        else { Destroy(gameObject); }
     }
     
     private void InitializeFirebase()
@@ -40,180 +36,115 @@ public class FirebaseManager : MonoBehaviour
                 auth = FirebaseAuth.DefaultInstance;
                 databaseReference = FirebaseDatabase.DefaultInstance.RootReference;
                 IsInitialized = true;
-                Debug.Log("Firebase initialized successfully");
+                Debug.Log("Firebase initialized");
             }
-            else
-            {
-                Debug.LogError($"Could not resolve Firebase dependencies: {task.Result}");
-            }
+            else { Debug.LogError($"Firebase Error: {task.Result}"); }
         });
     }
     
-    // AUTHENTICATION
+    // --- AUTH ---
     public void SignUpWithEmail(string email, string password, string username, Action<bool, string> callback)
     {
-        auth.CreateUserWithEmailAndPasswordAsync(email, password).ContinueWith(task =>
-        {
-            if (task.IsCanceled || task.IsFaulted)
-            {
-                callback?.Invoke(false, "Sign up failed: " + task.Exception?.Message);
-                return;
-            }
-            
+        auth.CreateUserWithEmailAndPasswordAsync(email, password).ContinueWith(task => {
+            if (task.IsFaulted || task.IsCanceled) { callback?.Invoke(false, "Error"); return; }
             currentUser = task.Result.User;
             CreateUserProfile(currentUser.UserId, username, email);
-            callback?.Invoke(true, "Sign up successful!");
+            callback?.Invoke(true, "Success");
         });
     }
-    
+
     public void SignInWithEmail(string email, string password, Action<bool, string> callback)
     {
-        auth.SignInWithEmailAndPasswordAsync(email, password).ContinueWith(task =>
-        {
-            if (task.IsCanceled || task.IsFaulted)
-            {
-                callback?.Invoke(false, "Sign in failed: " + task.Exception?.Message);
-                return;
-            }
-            
+        auth.SignInWithEmailAndPasswordAsync(email, password).ContinueWith(task => {
+            if (task.IsFaulted || task.IsCanceled) { callback?.Invoke(false, "Error"); return; }
             currentUser = task.Result.User;
-            callback?.Invoke(true, "Sign in successful!");
+            callback?.Invoke(true, "Success");
         });
     }
-    
-    public void SignOut()
-    {
-        auth.SignOut();
-        currentUser = null;
-    }
-    
-    // USER PROFILE
+
+    public void SignOut() { auth.SignOut(); currentUser = null; }
+
+    // --- SETUP ---
     private void CreateUserProfile(string userId, string username, string email)
     {
-        Dictionary<string, object> userData = new Dictionary<string, object>
-        {
-            { "username", username },
-            { "email", email },
-            { "totalScans", 0 },
-            { "lastScanTime", "" }
-        };
-        
+        var userData = new Dictionary<string, object> { { "username", username }, { "email", email }, { "totalScans", 0 } };
         databaseReference.Child("users").Child(userId).SetValueAsync(userData);
-        
-        // Initialize empty collection
         InitializeUserCollection(userId);
     }
-    
+
     private void InitializeUserCollection(string userId)
     {
-        Dictionary<string, object> initialCollection = new Dictionary<string, object>
-        {
-            { "curry_puff", 0 },
-            { "fish_ball", 0 },
-            { "sotong_ball", 0 },
-            { "chicken_wing", 0 },
-            { "spring_roll", 0 },
-            { "ngor_hiang", 0 }
+        var initialCollection = new Dictionary<string, object> { 
+            { "curry_puff", 0 }, { "fish_ball", 0 }, { "sotong_ball", 0 }, 
+            { "chicken_wing", 0 }, { "spring_roll", 0 }, { "ngor_hiang", 0 } 
         };
-        
         databaseReference.Child("users").Child(userId).Child("collectedItems").SetValueAsync(initialCollection);
         
-        // Initialize claimed rewards (NEW)
-        Dictionary<string, object> initialRewards = new Dictionary<string, object>
-        {
-            { "curry_puff_reward", false },
-            { "fish_ball_reward", false },
-            { "spring_roll_reward", false },
-            { "sotong_ball_reward", false },
-            { "chicken_wing_reward", false },
-            { "ngor_hiang_reward", false }
+        var initialRewards = new Dictionary<string, object> {
+            { "curry_puff_reward", false }, { "fish_ball_reward", false },
+            { "spring_roll_reward", false }, { "sotong_ball_reward", false },
+            { "chicken_wing_reward", false }, { "ngor_hiang_reward", false }
         };
-        
         databaseReference.Child("users").Child(userId).Child("claimedRewards").SetValueAsync(initialRewards);
     }
-    
-    // SCANNING & ITEM COLLECTION
+
+    // --- SCANNING ---
     public void RecordScan(Action<ScanResult> onItemReceived)
     {
         if (currentUser == null) return;
-        
         string userId = currentUser.UserId;
-        
-        // Increment total scans
-        databaseReference.Child("users").Child(userId).Child("totalScans").RunTransaction(mutableData =>
-        {
-            int currentScans = mutableData.Value != null ? int.Parse(mutableData.Value.ToString()) : 0;
-            mutableData.Value = currentScans + 1;
-            return TransactionResult.Success(mutableData);
+
+        // 1. Update Scans
+        databaseReference.Child("users").Child(userId).Child("totalScans").RunTransaction(data => {
+            int val = data.Value != null ? int.Parse(data.Value.ToString()) : 0;
+            data.Value = val + 1;
+            return TransactionResult.Success(data);
         });
-        
-        // Update last scan time
-        databaseReference.Child("users").Child(userId).Child("lastScanTime")
-            .SetValueAsync(DateTime.UtcNow.ToString("o"));
-        
-        // Roll for item using ItemDatabase
+
+        // 2. Logic
         string itemId = ItemDatabase.Instance.RollRandomItem();
-        
-        // Create scan result
         ScanResult result = new ScanResult(itemId);
-        
-        // Check if first time
-        GetItemCount(userId, itemId, (currentCount) =>
-        {
-            result.isFirstTime = (currentCount == 0);
-            result.newCount = currentCount + 1;
+
+        // 3. Update Collection
+        databaseReference.Child("users").Child(userId).Child("collectedItems").Child(itemId).RunTransaction(data => {
+            int count = data.Value != null ? int.Parse(data.Value.ToString()) : 0;
+            data.Value = count + 1;
+            return TransactionResult.Success(data);
+        }).ContinueWith(t => {
             
-            // Add item to collection
-            AddItemToCollection(userId, itemId);
-            
-            // Check if reward unlocked (NEW)
+            // Check if user just hit the target (e.g. 10/10)
             CheckRewardUnlocked(userId, itemId, result.newCount, (unlockedReward) =>
             {
                 if (unlockedReward != null)
                 {
-                    result.completedNewCombo = true; // Reusing this field for "reward unlocked"
-                    result.completedComboId = itemId + "_reward";
+                    result.completedNewCombo = true;
                     result.rewardEarned = unlockedReward;
                 }
-                
                 onItemReceived?.Invoke(result);
             });
         });
     }
-    
+
+    // FIX IS HERE: We DO NOT set the database to true here. We only check.
     private void CheckRewardUnlocked(string userId, string itemId, int newCount, Action<string> callback)
     {
         ItemModel item = ItemDatabase.Instance.GetItem(itemId);
-        if (item == null)
-        {
-            callback?.Invoke(null);
-            return;
-        }
-        
-        // Check if just reached threshold
+        if (item == null) { callback?.Invoke(null); return; }
+
+        // Only notify exactly when they hit the target
         if (newCount == item.rewardThreshold)
         {
-            // Check if not already claimed
             string rewardKey = itemId + "_reward";
             databaseReference.Child("users").Child(userId).Child("claimedRewards").Child(rewardKey)
-                .GetValueAsync().ContinueWith(task =>
+                .GetValueAsync().ContinueWith(task => 
                 {
-                    if (task.IsCompleted)
+                    bool isClaimed = task.Result.Exists && bool.Parse(task.Result.Value.ToString());
+                    
+                    // Only notify if NOT already claimed
+                    if (!isClaimed)
                     {
-                        bool alreadyClaimed = task.Result.Value != null && bool.Parse(task.Result.Value.ToString());
-                        
-                        if (!alreadyClaimed)
-                        {
-                            // Mark as claimed
-                            databaseReference.Child("users").Child(userId).Child("claimedRewards").Child(rewardKey)
-                                .SetValueAsync(true);
-                            
-                            callback?.Invoke(item.rewardDescription);
-                        }
-                        else
-                        {
-                            callback?.Invoke(null);
-                        }
+                        // WE DO NOT SAVE TO DATABASE HERE. User must click "Claim" button.
+                        callback?.Invoke(item.rewardDescription);
                     }
                     else
                     {
@@ -226,110 +157,125 @@ public class FirebaseManager : MonoBehaviour
             callback?.Invoke(null);
         }
     }
-    
-    private void GetItemCount(string userId, string itemId, Action<int> callback)
+
+    // --- REWARDS SYSTEM ---
+
+    // 1. Claim Reward (Generates Voucher + Saves to DB)
+    public void ClaimReward(string itemId, string rewardDesc, Action<bool> callback)
     {
-        databaseReference.Child("users").Child(userId).Child("collectedItems").Child(itemId)
-            .GetValueAsync().ContinueWith(task =>
-            {
-                if (task.IsCompleted)
-                {
-                    int count = task.Result.Value != null ? int.Parse(task.Result.Value.ToString()) : 0;
-                    callback?.Invoke(count);
-                }
-                else
-                {
-                    callback?.Invoke(0);
-                }
+        if (currentUser == null) return;
+        string userId = currentUser.UserId;
+        string rewardKey = itemId + "_reward";
+
+        // Generate Code
+        string uniqueCode = "OCK-" + Guid.NewGuid().ToString().Substring(0, 6).ToUpper();
+
+        // Prepare Data
+        Dictionary<string, object> voucherData = new Dictionary<string, object>();
+        voucherData["code"] = uniqueCode;
+        voucherData["description"] = rewardDesc;
+        voucherData["itemId"] = itemId;
+        voucherData["date"] = DateTime.Now.ToString("dd/MM/yyyy");
+
+        // 1. Mark as Claimed (So button disables)
+        databaseReference.Child("users").Child(userId).Child("claimedRewards").Child(rewardKey).SetValueAsync(true);
+        
+        // 2. Save Voucher (So it appears in My Rewards)
+        string pushKey = databaseReference.Child("users").Child(userId).Child("myVouchers").Push().Key;
+        databaseReference.Child("users").Child(userId).Child("myVouchers").Child(pushKey).SetValueAsync(voucherData)
+            .ContinueWith(task => {
+                if (task.IsCompleted) callback?.Invoke(true);
+                else callback?.Invoke(false);
             });
     }
-    
-    private void AddItemToCollection(string userId, string itemId)
+
+    // 2. Get Vouchers List
+    public void GetMyVouchers(Action<List<VoucherData>> callback)
     {
-        databaseReference.Child("users").Child(userId).Child("collectedItems").Child(itemId)
-            .RunTransaction(mutableData =>
+        if (currentUser == null) return;
+        databaseReference.Child("users").Child(currentUser.UserId).Child("myVouchers").GetValueAsync().ContinueWith(task => {
+            List<VoucherData> vouchers = new List<VoucherData>();
+            if (task.IsCompleted && task.Result.Exists) {
+                foreach (var c in task.Result.Children) {
+                    try {
+                        VoucherData v = new VoucherData();
+                        v.code = c.Child("code").Value?.ToString() ?? "Error";
+                        v.description = c.Child("description").Value?.ToString() ?? "Reward";
+                        v.date = c.Child("date").Value?.ToString() ?? "";
+                        v.itemId = c.Child("itemId").Value?.ToString() ?? "curry_puff";
+                        vouchers.Add(v);
+                    } catch { }
+                }
+            }
+            callback?.Invoke(vouchers);
+        });
+    }
+
+    // 3. Get Claim Status
+    public void GetClaimedRewardsStatus(Action<Dictionary<string, bool>> callback)
+    {
+        if (currentUser == null) return;
+        databaseReference.Child("users").Child(currentUser.UserId).Child("claimedRewards").GetValueAsync().ContinueWith(task =>
+        {
+            Dictionary<string, bool> claimedRewards = new Dictionary<string, bool>();
+            if (task.IsCompleted && task.Result.Exists)
             {
-                int currentCount = mutableData.Value != null ? int.Parse(mutableData.Value.ToString()) : 0;
-                mutableData.Value = currentCount + 1;
-                return TransactionResult.Success(mutableData);
-            });
+                foreach (var child in task.Result.Children)
+                    claimedRewards[child.Key] = bool.Parse(child.Value.ToString());
+            }
+            callback?.Invoke(claimedRewards);
+        });
     }
     
-    // GET USER DATA
+    // Redirect for compatibility
+    public void GetClaimedRewards(Action<Dictionary<string, bool>> callback) => GetClaimedRewardsStatus(callback);
+
+    // --- HELPERS ---
     public void GetUserCollection(Action<Dictionary<string, int>> callback)
     {
         if (currentUser == null) return;
-        
-        databaseReference.Child("users").Child(currentUser.UserId).Child("collectedItems")
-            .GetValueAsync().ContinueWith(task =>
+        databaseReference.Child("users").Child(currentUser.UserId).Child("collectedItems").GetValueAsync().ContinueWith(task =>
+        {
+            Dictionary<string, int> collection = new Dictionary<string, int>();
+            if (task.IsCompleted && task.Result.Exists)
             {
-                if (task.IsCompleted)
-                {
-                    DataSnapshot snapshot = task.Result;
-                    Dictionary<string, int> collection = new Dictionary<string, int>();
-                    
-                    foreach (var child in snapshot.Children)
-                    {
-                        collection[child.Key] = int.Parse(child.Value.ToString());
-                    }
-                    
-                    callback?.Invoke(collection);
-                }
-            });
+                foreach (var child in task.Result.Children)
+                    collection[child.Key] = int.Parse(child.Value.ToString());
+            }
+            callback?.Invoke(collection);
+        });
     }
-    
+
     public void GetUserStats(Action<int, int> callback)
     {
         if (currentUser == null) return;
-        
         databaseReference.Child("users").Child(currentUser.UserId).GetValueAsync().ContinueWith(task =>
         {
             if (task.IsCompleted)
             {
                 DataSnapshot snapshot = task.Result;
-                int totalScans = snapshot.Child("totalScans").Exists ? 
-                    int.Parse(snapshot.Child("totalScans").Value.ToString()) : 0;
-                
+                int totalScans = snapshot.Child("totalScans").Exists ? int.Parse(snapshot.Child("totalScans").Value.ToString()) : 0;
                 int uniqueItems = 0;
-                var collectedItems = snapshot.Child("collectedItems");
-                foreach (var item in collectedItems.Children)
-                {
-                    if (int.Parse(item.Value.ToString()) > 0)
-                        uniqueItems++;
-                }
-                
+                foreach (var item in snapshot.Child("collectedItems").Children)
+                    if (int.Parse(item.Value.ToString()) > 0) uniqueItems++;
                 callback?.Invoke(totalScans, uniqueItems);
             }
         });
     }
     
-    // GET CLAIMED REWARDS (Replaces GetClaimedCombos)
-    public void GetClaimedRewards(Action<Dictionary<string, bool>> callback)
+    private void GetItemCount(string userId, string itemId, Action<int> callback)
     {
-        if (currentUser == null) return;
-        
-        databaseReference.Child("users").Child(currentUser.UserId).Child("claimedRewards")
-            .GetValueAsync().ContinueWith(task =>
-            {
-                if (task.IsCompleted)
-                {
-                    DataSnapshot snapshot = task.Result;
-                    Dictionary<string, bool> claimedRewards = new Dictionary<string, bool>();
-                    
-                    if (snapshot.Exists)
-                    {
-                        foreach (var child in snapshot.Children)
-                        {
-                            claimedRewards[child.Key] = bool.Parse(child.Value.ToString());
-                        }
-                    }
-                    
-                    callback?.Invoke(claimedRewards);
-                }
-                else
-                {
-                    callback?.Invoke(new Dictionary<string, bool>());
-                }
-            });
+        databaseReference.Child("users").Child(userId).Child("collectedItems").Child(itemId).GetValueAsync().ContinueWith(task =>
+        {
+            int count = (task.IsCompleted && task.Result.Value != null) ? int.Parse(task.Result.Value.ToString()) : 0;
+            callback?.Invoke(count);
+        });
     }
+}
+
+public class VoucherData {
+    public string code;
+    public string description;
+    public string date;
+    public string itemId;
 }

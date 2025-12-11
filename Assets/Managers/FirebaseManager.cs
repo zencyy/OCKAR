@@ -67,7 +67,16 @@ public class FirebaseManager : MonoBehaviour
     // --- SETUP ---
     private void CreateUserProfile(string userId, string username, string email)
     {
-        var userData = new Dictionary<string, object> { { "username", username }, { "email", email }, { "totalScans", 0 } };
+        // We store username and email for display purposes.
+        // NEVER store the password here.
+        var userData = new Dictionary<string, object> 
+        { 
+            { "username", username }, 
+            { "email", email }, 
+            { "totalScans", 0 },
+            { "lastScanTime", "" }
+        };
+        
         databaseReference.Child("users").Child(userId).SetValueAsync(userData);
         InitializeUserCollection(userId);
     }
@@ -87,6 +96,30 @@ public class FirebaseManager : MonoBehaviour
         };
         databaseReference.Child("users").Child(userId).Child("claimedRewards").SetValueAsync(initialRewards);
     }
+    /*/public void SaveItemDatabaseToFirebase()
+    {
+        if (databaseReference == null) return;
+
+        Debug.Log("Starting Item Database Upload...");
+        List<ItemModel> allItems = ItemDatabase.Instance.GetAllItems();
+
+        foreach (var item in allItems)
+        {
+            // We create a clean dictionary. We DO NOT upload Prefabs/Sprites.
+            Dictionary<string, object> itemData = new Dictionary<string, object>();
+            itemData["name"] = item.itemName;
+            itemData["description"] = item.description;
+            itemData["rarity"] = item.rarity.ToString(); // Store enum as string
+            itemData["dropRate"] = item.dropRate;
+            itemData["rewardThreshold"] = item.rewardThreshold;
+            itemData["rewardDescription"] = item.rewardDescription;
+
+            // Save to "game_data/items/[itemId]"
+            databaseReference.Child("game_data").Child("items").Child(item.itemId).SetValueAsync(itemData);
+        }
+        
+        Debug.Log("Upload complete! Check your Firebase Console.");
+    }*/
 
     // --- SCANNING ---
     public void RecordScan(Action<ScanResult> onItemReceived)

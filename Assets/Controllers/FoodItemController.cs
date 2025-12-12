@@ -8,7 +8,7 @@ public class FoodItemController : MonoBehaviour
     [SerializeField] private float targetScale = 0.05f;
     [SerializeField] private float scaleSpeed = 2f;
     [SerializeField] private float rotationSpeed = 60f;
-    [SerializeField] private float displayDuration = 3f; // How long to show before collecting
+    // Removed displayDuration since we now wait for input
     
     [Header("Particle Effects")]
     [SerializeField] private ParticleSystem spawnEffect;
@@ -29,7 +29,7 @@ public class FoodItemController : MonoBehaviour
         // Show spawn animation
         StartCoroutine(SpawnAnimation());
         
-        // Show notification
+        // Show notification immediately
         ShowItemNotification();
     }
     
@@ -53,25 +53,53 @@ public class FoodItemController : MonoBehaviour
         
         transform.localScale = Vector3.one * targetScale;
         
-        // Continue rotating
-        StartCoroutine(RotateItem());
-        
-        // Auto-collect after display duration
-        yield return new WaitForSeconds(displayDuration);
-        
-        if (!isCollecting)
-        {
-            CollectItem();
-        }
-    }
-    
-    private IEnumerator RotateItem()
-    {
+        // --- CHANGE: Wait Indefinitely ---
+        // Instead of waiting for seconds, we loop until CollectItem() is called externally
         while (!isCollecting)
         {
             transform.Rotate(Vector3.up, rotationSpeed * Time.deltaTime);
             yield return null;
         }
+    }
+    
+    // Called by PackController when user taps the second time
+    public void CollectItem()
+    {
+        if (isCollecting) return;
+        
+        isCollecting = true;
+        
+        // Trigger the fly away animation
+        StartCoroutine(CollectAnimation());
+    }
+    
+    private IEnumerator CollectAnimation()
+    {
+        // Fly up and shrink
+        float duration = 0.5f;
+        float elapsed = 0f;
+        Vector3 startPos = transform.position;
+        Vector3 startScale = transform.localScale;
+        
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            float progress = elapsed / duration;
+            
+            // Move up
+            transform.position = startPos + Vector3.up * progress * 0.5f;
+            
+            // Shrink
+            transform.localScale = Vector3.Lerp(startScale, Vector3.zero, progress);
+            
+            // Spin faster
+            transform.Rotate(Vector3.up, rotationSpeed * 5f * Time.deltaTime);
+            
+            yield return null;
+        }
+        
+        // Destroy
+        Destroy(gameObject);
     }
     
     private void CreateRarityEffect()
@@ -95,52 +123,5 @@ public class FoodItemController : MonoBehaviour
         {
             UIManager.Instance.ShowCollectionNotification(scanResult);
         }
-    }
-    
-    // User taps to collect early
-    private void OnMouseDown()
-    {
-        if (!isCollecting)
-        {
-            CollectItem();
-        }
-    }
-    
-    private void CollectItem()
-    {
-        if (isCollecting) return;
-        
-        isCollecting = true;
-        
-        StartCoroutine(CollectAnimation());
-    }
-    
-    private IEnumerator CollectAnimation()
-    {
-        // Fly up and shrink
-        float duration = 0.5f;
-        float elapsed = 0f;
-        Vector3 startPos = transform.position;
-        Vector3 startScale = transform.localScale;
-        
-        while (elapsed < duration)
-        {
-            elapsed += Time.deltaTime;
-            float progress = elapsed / duration;
-            
-            // Move up
-            transform.position = startPos + Vector3.up * progress * 0.5f;
-            
-            // Shrink
-            transform.localScale = startScale * (1f - progress);
-            
-            // Spin faster
-            transform.Rotate(Vector3.up, rotationSpeed * 3f * Time.deltaTime);
-            
-            yield return null;
-        }
-        
-        // Destroy
-        Destroy(gameObject);
     }
 }

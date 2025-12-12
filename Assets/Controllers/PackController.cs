@@ -15,12 +15,14 @@ public class PackController : MonoBehaviour
     [SerializeField] private AudioClip tapSound;
     
     private ScanResult scanResult;
-    private bool hasBeenTapped = false;
     private Vector3 startLocalPos;
+    
+    // NEW: Track state and the spawned food item
+    public bool IsOpened { get; private set; } = false;
+    private FoodItemController spawnedFoodItem;
 
     private void Start()
     {
-        // 1. Auto-find model
         if (modelToAnimate == null)
         {
             if (transform.childCount > 0) modelToAnimate = transform.GetChild(0);
@@ -29,18 +31,17 @@ public class PackController : MonoBehaviour
 
         if (modelToAnimate != null) startLocalPos = modelToAnimate.localPosition;
 
-        // 2. FORCE HUGE COLLIDER (The "Big Hit Box" Fix)
-        BoxCollider col = GetComponent<BoxCollider>();
-        if (col == null) col = gameObject.AddComponent<BoxCollider>();
-        col.size = new Vector3(5f, 5f, 5f); // 5x bigger than the model
+        if (GetComponent<Collider>() == null)
+        {
+            BoxCollider col = gameObject.AddComponent<BoxCollider>();
+            col.size = new Vector3(5f, 5f, 5f); 
+        }
     }
 
     private void Update()
     {
-        if (hasBeenTapped) return;
-
-        // Simple Animation
-        if (modelToAnimate != null)
+        // Only animate the box if it hasn't been opened yet
+        if (!IsOpened && modelToAnimate != null)
         {
             float newY = startLocalPos.y + Mathf.Sin(Time.time * floatSpeed) * floatHeight;
             modelToAnimate.localPosition = new Vector3(startLocalPos.x, newY, startLocalPos.z);
@@ -55,16 +56,30 @@ public class PackController : MonoBehaviour
     // Called by ARImageTrackingManager
     public void TapPack()
     {
-        if (hasBeenTapped) return;
-        hasBeenTapped = true;
-        
-        if (audioSource != null && tapSound != null)
-            audioSource.PlayOneShot(tapSound);
-        
-        SpawnFoodItem();
-        
-        if (modelToAnimate != null) modelToAnimate.gameObject.SetActive(false);
-        Destroy(gameObject, 0.5f);
+        if (!IsOpened)
+        {
+            // --- STEP 1: OPEN PACK ---
+            IsOpened = true;
+            
+            if (audioSource != null && tapSound != null)
+                audioSource.PlayOneShot(tapSound);
+            
+            SpawnFoodItem();
+            
+            // Hide the pack visuals, but KEEP the GameObject active so we can detect the second tap
+            if (modelToAnimate != null) modelToAnimate.gameObject.SetActive(false);
+        }
+        else
+        {
+            // --- STEP 2: COLLECT ITEM ---
+            if (spawnedFoodItem != null)
+            {
+                spawnedFoodItem.CollectItem(); // Trigger fly away
+            }
+            
+            // Destroy the empty pack object after a delay
+            Destroy(gameObject, 0.5f);
+        }
     }
     
     private void SpawnFoodItem()
@@ -74,17 +89,17 @@ public class PackController : MonoBehaviour
         ItemModel item = ItemDatabase.Instance.GetItem(scanResult.itemId);
         if (item == null || item.itemPrefab == null) return;
         
-        GameObject foodItem = Instantiate(item.itemPrefab, transform.position, Quaternion.identity);
+        GameObject foodObj = Instantiate(item.itemPrefab, transform.position, Quaternion.identity);
         
         if (transform.parent != null)
         {
-            foodItem.transform.parent = transform.parent;
-            // Ensure food item is visible and positioned correctly
-            foodItem.transform.localPosition = new Vector3(0, 0.05f, 0); 
-            foodItem.transform.localScale = Vector3.one * 0.05f; 
+            foodObj.transform.parent = transform.parent;
+            foodObj.transform.localPosition = new Vector3(0, 0.05f, 0); 
+            foodObj.transform.localScale = Vector3.one * 0.05f; 
         }
         
-        FoodItemController foodController = foodItem.AddComponent<FoodItemController>();
-        foodController.Initialize(scanResult);
+        // Save reference to the controller so we can collect it later
+        spawnedFoodItem = foodObj.AddComponent<FoodItemController>();
+        spawnedFoodItem.Initialize(scanResult);
     }
 }

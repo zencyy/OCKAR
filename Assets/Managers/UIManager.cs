@@ -26,16 +26,17 @@ public class UIManager : MonoBehaviour
     [SerializeField] private TMP_InputField emailInput;
     [SerializeField] private TMP_InputField passwordInput;
     [SerializeField] private Button loginButton;
-    [SerializeField] private Button openSignupButton; // Button on Login Page to go to Signup
+    [SerializeField] private Button openSignupButton; 
     [SerializeField] private TextMeshProUGUI loginStatusText;
 
     [Header("Signup UI")]
     [SerializeField] private GameObject signupPanel;
-    [SerializeField] private TMP_InputField signupEmailInput; // Separate input to avoid confusion
+    [SerializeField] private TMP_InputField signupEmailInput; 
     [SerializeField] private TMP_InputField signupPasswordInput;
     [SerializeField] private TMP_InputField signupUsernameInput;
-    [SerializeField] private Button submitSignupButton; // "Create Account"
-    [SerializeField] private Button backToLoginButton; // "Cancel / Back"
+    [SerializeField] private Button submitSignupButton; 
+    [SerializeField] private Button backToLoginButton;
+    [SerializeField] private TextMeshProUGUI signupStatusText;
 
     [Header("Main Menu UI")]
     [SerializeField] private TextMeshProUGUI welcomeText;
@@ -72,6 +73,11 @@ public class UIManager : MonoBehaviour
     [SerializeField] private GameObject notificationPanel;
     [SerializeField] private TextMeshProUGUI notificationText;
     [SerializeField] private Image notificationIcon;
+
+    // Professional Colors
+    private Color colorSuccess = new Color(0f, 0.8f, 0.4f); // Emerald Green
+    private Color colorError = new Color(1f, 0.3f, 0.3f);   // Soft Red
+    private Color colorLoading = new Color(1f, 0.8f, 0f);   // Golden Yellow
 
     private readonly List<Action> _mainThreadActions = new List<Action>();
 
@@ -132,6 +138,7 @@ public class UIManager : MonoBehaviour
         HideAllScreens();
         loginScreen?.SetActive(true);
         signupPanel?.SetActive(false);
+        ResetInputFields();
     }
 
     public void ShowMainMenu()
@@ -159,94 +166,191 @@ public class UIManager : MonoBehaviour
         signupPanel?.SetActive(false);
     }
 
-    // --- LOGIN / SIGNUP LOGIC ---
-
-    // 1. User clicks "Sign Up" on Login Page -> Opens Panel
-    private void OnOpenSignupClicked()
+    private void ResetInputFields()
     {
-        signupPanel.SetActive(true);
-        // Clear previous inputs
+        if(emailInput) emailInput.text = "";
+        if(passwordInput) passwordInput.text = "";
         if(signupEmailInput) signupEmailInput.text = "";
         if(signupPasswordInput) signupPasswordInput.text = "";
         if(signupUsernameInput) signupUsernameInput.text = "";
+        if(loginStatusText) loginStatusText.text = "";
+        if(signupStatusText) signupStatusText.text = "";
     }
 
-    // 2. User clicks "Back" on Signup Panel -> Closes Panel
+    // --- LOGIN / SIGNUP LOGIC ---
+
+    private void OnOpenSignupClicked()
+    {
+        signupPanel.SetActive(true);
+        ResetInputFields();
+        StartCoroutine(ShakeAnimation(signupPanel.transform, 0.1f, 5f));
+    }
+
     private void OnCancelSignupClicked()
     {
         signupPanel.SetActive(false);
+        ResetInputFields();
     }
 
-    // 3. User clicks "Create Account" -> Creates & returns to Login
     private void OnSubmitSignupClicked()
     {
         string email = signupEmailInput.text?.Trim();
         string password = signupPasswordInput.text;
         string username = signupUsernameInput.text?.Trim();
 
-        if (string.IsNullOrEmpty(email) || string.IsNullOrEmpty(password) || string.IsNullOrEmpty(username))
-        {
-            ShowLoginStatus("Please fill all fields", false);
-            return;
-        }
+        // VALIDATION (Text replaced with safe characters)
+        if (string.IsNullOrEmpty(username)) { ShowStatus(signupStatusText, "Username is required", false); return; }
+        if (string.IsNullOrEmpty(email)) { ShowStatus(signupStatusText, "Email is required", false); return; }
+        if (!IsValidEmail(email)) { ShowStatus(signupStatusText, "Invalid Email Format", false); return; }
+        if (string.IsNullOrEmpty(password)) { ShowStatus(signupStatusText, "Password is required", false); return; }
+        if (password.Length < 6) { ShowStatus(signupStatusText, "Password too short (Min 6)", false); return; }
+
+        ToggleInteraction(false); 
+        ShowStatus(signupStatusText, "Creating Account...", true, true);
 
         FirebaseManager.Instance.SignUpWithEmail(email, password, username, (success, message) =>
         {
             RunOnMainThread(() => 
             {
+                ToggleInteraction(true); 
                 if (success)
                 {
-                    // SUCCESS: Hide panel, force user to log in
                     signupPanel.SetActive(false);
-                    ShowLoginStatus(message, true); // "Account Created! Please Log In"
+                    ShowStatus(loginStatusText, "Account Created! Please Log In.", true);
                     
-                    // Clear inputs so they have to type again
                     emailInput.text = "";
                     passwordInput.text = "";
                 }
                 else
                 {
-                    ShowLoginStatus(message, false);
+                    string cleanError = CleanFirebaseError(message);
+                    ShowStatus(signupStatusText, cleanError, false);
                 }
             });
         });
     }
 
-    // 4. Standard Login
     private void OnLoginButtonClicked()
     {
         string email = emailInput.text?.Trim();
         string password = passwordInput.text;
 
-        if (string.IsNullOrEmpty(email) || string.IsNullOrEmpty(password)) {
-            ShowLoginStatus("Fill all fields", false);
-            return;
-        }
+        if (string.IsNullOrEmpty(email)) { ShowStatus(loginStatusText, "Enter Email", false); return; }
+        if (string.IsNullOrEmpty(password)) { ShowStatus(loginStatusText, "Enter Password", false); return; }
+
+        ToggleInteraction(false);
+        ShowStatus(loginStatusText, "Signing In...", true, true);
 
         FirebaseManager.Instance.SignInWithEmail(email, password, (success, message) =>
         {
             RunOnMainThread(() => {
-                ShowLoginStatus(message, success);
-                if (success) ShowMainMenu();
+                ToggleInteraction(true);
+                if (success) {
+                    ShowStatus(loginStatusText, "Login Successful!", true);
+                    ShowMainMenu();
+                } else {
+                    string cleanError = CleanFirebaseError(message);
+                    ShowStatus(loginStatusText, cleanError, false);
+                }
             });
         });
     }
 
-    private void OnLogoutButtonClicked()
-    {
-        FirebaseManager.Instance.SignOut();
-        ShowLoginScreen();
-    }
+    // --- FEEDBACK SYSTEM ---
 
-    private void ShowLoginStatus(string message, bool isSuccess)
+    private void ShowStatus(TextMeshProUGUI targetText, string message, bool isSuccess, bool isLoading = false)
     {
-        if (loginStatusText != null) {
-            loginStatusText.text = message;
-            loginStatusText.color = isSuccess ? Color.green : Color.red;
+        if (targetText == null) return;
+
+        targetText.text = message;
+        targetText.gameObject.SetActive(true);
+        targetText.alpha = 1f;
+
+        if (isLoading)
+        {
+            targetText.color = colorLoading;
         }
+        else if (isSuccess)
+        {
+            targetText.color = colorSuccess;
+        }
+        else
+        {
+            // Error: Make it Red and Shake
+            targetText.color = colorError;
+            StartCoroutine(ShakeAnimation(targetText.transform, 0.3f, 10f));
+        }
+
+        StopCoroutine("AutoFadeOut");
+        if (!isLoading) StartCoroutine(AutoFadeOut(targetText));
     }
 
-    // --- MAIN MENU ---
+    private IEnumerator ShakeAnimation(Transform target, float duration, float magnitude)
+    {
+        Vector3 originalPos = target.localPosition;
+        float elapsed = 0.0f;
+
+        while (elapsed < duration)
+        {
+            float x = UnityEngine.Random.Range(-1f, 1f) * magnitude;
+            target.localPosition = new Vector3(originalPos.x + x, originalPos.y, originalPos.z);
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+
+        target.localPosition = originalPos;
+    }
+
+    private IEnumerator AutoFadeOut(TextMeshProUGUI targetText)
+    {
+        yield return new WaitForSeconds(2.5f);
+        
+        float duration = 0.5f;
+        float elapsed = 0f;
+        
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            if(targetText != null) targetText.alpha = Mathf.Lerp(1f, 0f, elapsed / duration);
+            yield return null;
+        }
+        
+        if(targetText != null) targetText.text = "";
+    }
+
+    private void ToggleInteraction(bool interactable)
+    {
+        if(loginButton) loginButton.interactable = interactable;
+        if(submitSignupButton) submitSignupButton.interactable = interactable;
+        if(openSignupButton) openSignupButton.interactable = interactable;
+        if(backToLoginButton) backToLoginButton.interactable = interactable;
+    }
+
+    private string CleanFirebaseError(string originalMessage)
+    {
+        if (string.IsNullOrEmpty(originalMessage)) return "Unknown Error";
+        string msg = originalMessage.ToLower();
+
+        if (msg.Contains("invalid_email") || msg.Contains("badly formatted")) return "Invalid Email Format";
+        if (msg.Contains("wrong_password") || msg.Contains("invalid_login")) return "Wrong Credentials";
+        if (msg.Contains("user_not_found")) return "Account Not Found";
+        if (msg.Contains("email_exists") || msg.Contains("already_in_use")) return "Email Taken";
+        if (msg.Contains("weak_password")) return "Password Too Weak";
+        if (msg.Contains("network")) return "Network Error";
+
+        return "Connection Error";
+    }
+
+    private bool IsValidEmail(string email)
+    {
+        if (string.IsNullOrEmpty(email)) return false;
+        return Regex.IsMatch(email, @"^[^@\s]+@[^@\s]+\.[^@\s]+$");
+    }
+
+    // --- OTHER UI LOGIC (Collection, Rewards, Etc) ---
+
+    private void OnLogoutButtonClicked() { FirebaseManager.Instance.SignOut(); ShowLoginScreen(); }
+
     private void UpdateMainMenuStats()
     {
         FirebaseManager.Instance.GetUserStats((totalScans, uniqueItems) =>
@@ -269,23 +373,19 @@ public class UIManager : MonoBehaviour
         });
     }
 
-    // --- COLLECTION ---
     private void LoadCollection()
     {
         foreach (Transform child in collectionGrid) Destroy(child.gameObject);
-
         FirebaseManager.Instance.GetUserCollection(collection =>
         {
             RunOnMainThread(() => {
                 if (collectionScreen == null || !collectionScreen.activeInHierarchy) return;
-
                 foreach (var item in collection)
                 {
                     GameObject itemObj = Instantiate(collectionItemPrefab, collectionGrid);
                     itemObj.transform.localScale = Vector3.one;
                     Vector3 pos = itemObj.transform.localPosition;
                     itemObj.transform.localPosition = new Vector3(pos.x, pos.y, 0);
-
                     CollectionItemUI itemUI = itemObj.GetComponent<CollectionItemUI>();
                     if (itemUI != null) {
                         ItemInfo info = GetItemInfo(item.Key);
@@ -296,11 +396,9 @@ public class UIManager : MonoBehaviour
         });
     }
 
-    // --- REWARDS ---
     private void LoadRewardProgress()
     {
         foreach (Transform child in rewardsGrid) Destroy(child.gameObject);
-
         FirebaseManager.Instance.GetUserCollection(collection => 
         {
             FirebaseManager.Instance.GetClaimedRewardsStatus(claimedStatus => 
@@ -308,21 +406,17 @@ public class UIManager : MonoBehaviour
                 RunOnMainThread(() => 
                 {
                     if (rewardsScreen == null || !rewardsScreen.activeInHierarchy) return;
-
                     List<ItemModel> allItems = ItemDatabase.Instance.GetAllItems();
-
                     foreach (ItemModel item in allItems)
                     {
                         GameObject cardObj = Instantiate(rewardCardPrefab, rewardsGrid);
                         cardObj.transform.localScale = Vector3.one;
                         Vector3 pos = cardObj.transform.localPosition;
                         cardObj.transform.localPosition = new Vector3(pos.x, pos.y, 0);
-
                         RewardCardUI cardUI = cardObj.GetComponent<RewardCardUI>();
                         int count = collection.ContainsKey(item.itemId) ? collection[item.itemId] : 0;
                         string rewardKey = item.itemId + "_reward";
                         bool isClaimed = claimedStatus.ContainsKey(rewardKey) && claimedStatus[rewardKey];
-
                         if (cardUI != null) cardUI.Setup(item, count, isClaimed, OnClaimButtonClicked);
                     }
                 });
@@ -334,7 +428,6 @@ public class UIManager : MonoBehaviour
     {
         ItemModel item = ItemDatabase.Instance.GetItem(itemId);
         if(item == null) return;
-
         FirebaseManager.Instance.ClaimReward(itemId, item.rewardDescription, (success) => 
         {
             RunOnMainThread(() => {
@@ -346,38 +439,29 @@ public class UIManager : MonoBehaviour
         });
     }
 
-    // --- VOUCHERS (FIXED INVISIBILITY) ---
     private void LoadMyVouchers()
     {
         foreach (Transform child in vouchersGrid) Destroy(child.gameObject);
-
         FirebaseManager.Instance.GetMyVouchers(vouchers => 
         {
             RunOnMainThread(() => 
             {
                 if (myVouchersScreen == null || !myVouchersScreen.activeInHierarchy) return;
-
                 foreach (var v in vouchers)
                 {
                     GameObject vObj = Instantiate(voucherCardPrefab, vouchersGrid);
-                    
-                    // --- FORCE VISIBILITY ---
                     vObj.transform.localScale = Vector3.one; 
                     Vector3 pos = vObj.transform.localPosition;
                     vObj.transform.localPosition = new Vector3(pos.x, pos.y, 0);
-                    // ------------------------
-
                     VoucherUI vUI = vObj.GetComponent<VoucherUI>();
                     ItemModel originalItem = ItemDatabase.Instance.GetItem(v.itemId);
                     Sprite icon = originalItem != null ? originalItem.itemSprite : null;
-
                     if (vUI != null) vUI.Setup(v.description, v.code, v.date, icon);
                 }
             });
         });
     }
 
-    // --- NOTIFICATIONS ---
     public void ShowCollectionNotification(ScanResult result) {
         if (result == null) return;
         ItemModel item = ItemDatabase.Instance.GetItem(result.itemId);
@@ -388,7 +472,12 @@ public class UIManager : MonoBehaviour
     }
 
     public void ShowRewardNotification(string itemName, string rewardDescription) {
-        notificationText.text = $"🎉 Reward Unlocked!\n🎁 {rewardDescription}\nfor collecting {itemName}!";
+        notificationText.text = $"Reward Unlocked!\n{rewardDescription}\nfor collecting {itemName}!";
+        StartCoroutine(ShowNotificationRoutine());
+    }
+
+    public void ShowErrorNotification(string message) {
+        notificationText.text = $"{message}";
         StartCoroutine(ShowNotificationRoutine());
     }
 

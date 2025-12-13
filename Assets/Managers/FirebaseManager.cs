@@ -15,6 +15,8 @@ public class FirebaseManager : MonoBehaviour
     
     public bool IsInitialized { get; private set; }
     public string CurrentUserId => currentUser?.UserId;
+
+    private readonly List<Action> _actions = new List<Action>();
     
     private void Awake()
     {
@@ -37,10 +39,54 @@ public class FirebaseManager : MonoBehaviour
                 databaseReference = FirebaseDatabase.DefaultInstance.RootReference;
                 IsInitialized = true;
                 Debug.Log("Firebase initialized");
+                SyncGameData();
             }
             else { Debug.LogError($"Firebase Error: {task.Result}"); }
         });
     }
+
+    private void Update()
+    {
+        if (_actions.Count > 0)
+        {
+            List<Action> localActions = new List<Action>();
+            lock (_actions)
+            {
+                localActions.AddRange(_actions);
+                _actions.Clear();
+            }
+            foreach (var action in localActions) action();
+        }
+    }
+
+    // Update SyncGameData to use this queue
+    private void SyncGameData()
+    {
+        databaseReference.Child("game_data").Child("items").GetValueAsync().ContinueWith(task =>
+        {
+            if (task.IsCompleted && task.Result.Exists)
+            {
+                lock (_actions)
+                {
+                    _actions.Add(() => 
+                    {
+                        foreach (var itemSnapshot in task.Result.Children)
+                        {
+                            try {
+                                string itemId = itemSnapshot.Key;
+                                int dropRate = int.Parse(itemSnapshot.Child("dropRate").Value.ToString());
+                                int threshold = int.Parse(itemSnapshot.Child("rewardThreshold").Value.ToString());
+                                ItemDatabase.Instance.UpdateItemStats(itemId, dropRate, threshold);
+                            } catch {}
+                        }
+                        Debug.Log("✅ Items Synced from Cloud");
+                    });
+                }
+            }
+        });
+    }
+
+    
     
     // --- AUTH ---
     public void SignUpWithEmail(string email, string password, string username, Action<bool, string> callback)
@@ -122,6 +168,7 @@ public class FirebaseManager : MonoBehaviour
     }*/
 
     // --- SCANNING ---
+   // --- SCANNING ---
     public void RecordScan(Action<ScanResult> onItemReceived)
     {
         if (currentUser == null) return;
@@ -138,14 +185,28 @@ public class FirebaseManager : MonoBehaviour
         string itemId = ItemDatabase.Instance.RollRandomItem();
         ScanResult result = new ScanResult(itemId);
 
-        // 3. Update Collection
+        // 3. Update Collection & GET THE NEW COUNT
         databaseReference.Child("users").Child(userId).Child("collectedItems").Child(itemId).RunTransaction(data => {
             int count = data.Value != null ? int.Parse(data.Value.ToString()) : 0;
             data.Value = count + 1;
             return TransactionResult.Success(data);
-        }).ContinueWith(t => {
-            
-            // Check if user just hit the target (e.g. 10/10)
+        }).ContinueWith(task => {
+            if (task.IsFaulted || task.IsCanceled)
+            {
+                Debug.LogError("Transaction failed.");
+                return;
+            }
+
+            // --- FIX START: Get the updated count from the transaction result ---
+            DataSnapshot snapshot = task.Result; // This contains the value AFTER the update
+            int updatedCount = int.Parse(snapshot.Value.ToString());
+
+            // Update the Result Object
+            result.newCount = updatedCount;
+            result.isFirstTime = (updatedCount == 1);
+            // --- FIX END ---
+
+            // Check reward using the CORRECT new count
             CheckRewardUnlocked(userId, itemId, result.newCount, (unlockedReward) =>
             {
                 if (unlockedReward != null)

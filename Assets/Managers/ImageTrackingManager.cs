@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.XR.ARFoundation;
 using UnityEngine.XR.ARSubsystems;
-// New Input System Namespaces
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.EnhancedTouch; 
 using Touch = UnityEngine.InputSystem.EnhancedTouch.Touch;
@@ -18,43 +17,67 @@ public class ARImageTrackingManager : MonoBehaviour
     // Debug State
     private string debugStatus = "Initializing...";
     private Dictionary<string, GameObject> spawnedPacks = new Dictionary<string, GameObject>();
-    private float lastScanTime = 0f; 
     private bool isProcessingScan = false;
+
+    // --- UI STYLES ---
+    private GUIStyle containerStyle;
+    private GUIStyle textStyle;
+    private Texture2D backgroundTexture;
+
+    private void InitStyles()
+    {
+        if (containerStyle != null) return;
+
+        // 1. Create a dark semi-transparent background texture
+        backgroundTexture = new Texture2D(1, 1);
+        backgroundTexture.SetPixel(0, 0, new Color(0, 0, 0, 0.7f)); // Black with 70% opacity
+        backgroundTexture.Apply();
+
+        // 2. Setup Container Style
+        containerStyle = new GUIStyle(GUI.skin.box);
+        containerStyle.normal.background = backgroundTexture;
+
+        // 3. Setup Text Style
+        textStyle = new GUIStyle(GUI.skin.label);
+        textStyle.fontSize = 40; // Nice and big
+        textStyle.fontStyle = FontStyle.Bold;
+        textStyle.normal.textColor = Color.white;
+        textStyle.alignment = TextAnchor.MiddleCenter;
+        textStyle.wordWrap = true;
+    }
 
     private void OnGUI()
     {
-        GUIStyle style = new GUIStyle();
-        style.fontSize = 40;
-        style.normal.textColor = Color.yellow; 
-        style.wordWrap = true;
-        
-        // Draw debug box
-        GUI.Box(new Rect(10, 10, Screen.width - 20, 450), "");
-        GUI.Label(new Rect(20, 20, Screen.width - 40, 430), debugStatus, style);
+        InitStyles();
+
+        // Layout Dimensions (Responsive to screen size)
+        float width = Screen.width * 0.9f;  // 90% of screen width
+        float height = 300f;                // Fixed height for text area
+        float x = (Screen.width - width) / 2;
+        float y = Screen.height - height - 100; // 100px from bottom
+
+        // Draw Background Box
+        GUI.Box(new Rect(x, y, width, height), GUIContent.none, containerStyle);
+
+        // Draw Text inside
+        GUI.Label(new Rect(x + 20, y + 20, width - 40, height - 40), debugStatus, textStyle);
     }
 
     private void OnEnable()
     {
-        debugStatus = "Screen Loaded. Warming up...";
-        
-        // 1. Enable Enhanced Touch
+        debugStatus = "Ready to Scan.\nPoint camera at the Old Chang Kee Logo.";
         EnhancedTouchSupport.Enable();
 
-        // 2. Setup Library
         if (unityTrackedImageManager != null)
         {
             if (myReferenceLibrary != null && unityTrackedImageManager.referenceLibrary == null)
             {
                 unityTrackedImageManager.referenceLibrary = myReferenceLibrary;
             }
-
 #pragma warning disable 618
             unityTrackedImageManager.trackedImagesChanged += OnTrackedImagesChanged;
 #pragma warning restore 618
         }
-        
-        // 3. Prevent "Ghost Scan" - Set timer to NOW so we have to wait 2 seconds
-        lastScanTime = Time.time; 
     }
 
     private void OnDisable()
@@ -65,43 +88,51 @@ public class ARImageTrackingManager : MonoBehaviour
             unityTrackedImageManager.trackedImagesChanged -= OnTrackedImagesChanged;
 #pragma warning restore 618
         }
-        
-        // Disable Enhanced Touch
         EnhancedTouchSupport.Disable();
-
         ResetScanning();
     }
 
-    // --- NEW INPUT SYSTEM (Global Tap) ---
+    // --- NEW INPUT SYSTEM ---
     private void Update()
     {
-        // Only run if we touched the screen
+        // 1. UPDATE TEXT STATUS based on state
+        if (spawnedPacks.Count > 0)
+        {
+            foreach (var kvp in spawnedPacks)
+            {
+                GameObject packObj = kvp.Value;
+                if (packObj != null && packObj.activeSelf)
+                {
+                    PackController pc = packObj.GetComponent<PackController>();
+                    if (pc != null)
+                    {
+                        if (pc.IsOpened) debugStatus = "Tap the Food to Collect it!";
+                        else debugStatus = "Pack Found!\nTap the Pack to Open!";
+                    }
+                }
+            }
+        }
+
+        // 2. HANDLE INPUT
         if (Touch.activeTouches.Count > 0)
         {
             Touch touch = Touch.activeTouches[0];
-            
-            // Trigger on the start of the touch (Tap)
             if (touch.phase == UnityEngine.InputSystem.TouchPhase.Began)
             {
-                // Check if we have any spawned packs
                 if (spawnedPacks.Count > 0)
                 {
-                    // Find the pack for "OCK_Logo" (or just the first available one)
                     foreach (var kvp in spawnedPacks)
                     {
                         GameObject packObj = kvp.Value;
                         if (packObj != null && packObj.activeSelf)
                         {
-                            // Get the controller
                             PackController packController = packObj.GetComponent<PackController>();
-                            if (packController == null) 
-                                packController = packObj.GetComponentInParent<PackController>();
+                            if (packController == null) packController = packObj.GetComponentInParent<PackController>();
 
                             if (packController != null)
                             {
-                                debugStatus = "GLOBAL TAP DETECTED! OPENING PACK...";
                                 packController.TapPack();
-                                return; // Stop after opening one
+                                return; 
                             }
                         }
                     }
@@ -109,14 +140,11 @@ public class ARImageTrackingManager : MonoBehaviour
             }
         }
     }
-    // ----------------------------------------
 
     public void ResetScanning()
     {
         isProcessingScan = false;
-        // Important: Set this to Time.time so we don't scan instantly upon returning
-        lastScanTime = Time.time; 
-
+        
         foreach (var pack in spawnedPacks.Values)
         {
             if (pack != null) Destroy(pack);
@@ -135,7 +163,7 @@ public class ARImageTrackingManager : MonoBehaviour
         if (trackedImage.referenceImage == null) return;
         string name = trackedImage.referenceImage.name;
 
-        // Logic 1: Handle existing pack (Move it)
+        // Logic 1: Handle existing pack
         if (spawnedPacks.ContainsKey(name))
         {
              GameObject pack = spawnedPacks[name];
@@ -143,35 +171,26 @@ public class ARImageTrackingManager : MonoBehaviour
              {
                  pack.transform.position = trackedImage.transform.position;
                  pack.transform.rotation = trackedImage.transform.rotation;
-                 
-                 // Hide if tracking is lost completely
-                 if (trackedImage.trackingState == TrackingState.None)
-                    pack.SetActive(false);
-                 else
-                    pack.SetActive(true);
+                 pack.SetActive(true); 
              }
              return; 
         }
 
-        // Logic 2: Spawn new pack (With Strict Rules)
         if (isProcessingScan) return;
 
-        // COOLDOWN CHECK (Must wait 2 seconds after entering screen)
-        if (Time.time - lastScanTime < 2.0f)
-        {
-            return;
-        }
-
+        // Logic 2: Spawn new pack
         if (name == "OCK_Logo")
         {
-             // STRICT TRACKING: Only spawn if tracking is PERFECT
              if (trackedImage.trackingState == TrackingState.Tracking)
              {
                  StartCoroutine(SpawnSequence(trackedImage));
              }
              else
              {
-                 debugStatus = $"Align Camera... ({trackedImage.trackingState})";
+                 if (trackedImage.trackingState == TrackingState.Limited)
+                    debugStatus = "Aligning Camera...\nHold Steady.";
+                 else
+                    debugStatus = "Scan the Logo to Begin";
              }
         }
     }
@@ -179,7 +198,6 @@ public class ARImageTrackingManager : MonoBehaviour
     private IEnumerator SpawnSequence(ARTrackedImage trackedImage)
     {
         isProcessingScan = true;
-        lastScanTime = Time.time;
         string name = trackedImage.referenceImage.name;
 
         if (packPrefab == null)
@@ -208,15 +226,18 @@ public class ARImageTrackingManager : MonoBehaviour
         bool firebaseDone = false;
         FirebaseManager.Instance.RecordScan(result =>
         {
-            // Update prompt to reflect new interaction
-            debugStatus = $"PACK FOUND!\nTap ANYWHERE to Open."; 
+            // Text is handled by Update loop now
             PackController pc = pack.GetComponent<PackController>();
             if (pc != null) pc.Initialize(result);
             firebaseDone = true;
         });
         
-        yield return new WaitForSeconds(2f);
-        if(!firebaseDone) debugStatus += "\n(Network Lag...)";
+        float timeout = 2f;
+        while (!firebaseDone && timeout > 0)
+        {
+            timeout -= Time.deltaTime;
+            yield return null;
+        }
         
         isProcessingScan = false;
     }

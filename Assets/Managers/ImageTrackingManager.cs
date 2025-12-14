@@ -18,6 +18,9 @@ public class ARImageTrackingManager : MonoBehaviour
     private string debugStatus = "Initializing...";
     private Dictionary<string, GameObject> spawnedPacks = new Dictionary<string, GameObject>();
     private bool isProcessingScan = false;
+    
+    // NEW: Flag to stop Update() from overwriting our success message
+    private bool isShowingSuccessMessage = false; 
 
     // --- UI STYLES ---
     private GUIStyle containerStyle;
@@ -96,7 +99,8 @@ public class ARImageTrackingManager : MonoBehaviour
     private void Update()
     {
         // 1. UPDATE TEXT STATUS based on state
-        if (spawnedPacks.Count > 0)
+        // We only update the text if we are NOT currently showing the "Added to Collection" message
+        if (!isShowingSuccessMessage && spawnedPacks.Count > 0)
         {
             foreach (var kvp in spawnedPacks)
             {
@@ -131,7 +135,18 @@ public class ARImageTrackingManager : MonoBehaviour
 
                             if (packController != null)
                             {
+                                // CHECK: Was the pack already open before this tap?
+                                bool wasAlreadyOpen = packController.IsOpened;
+
+                                // Perform the standard tap action
                                 packController.TapPack();
+
+                                // If it was ALREADY open, this tap means we just collected the food
+                                if (wasAlreadyOpen)
+                                {
+                                    StartCoroutine(ShowCollectionSuccess());
+                                }
+
                                 return; 
                             }
                         }
@@ -141,9 +156,28 @@ public class ARImageTrackingManager : MonoBehaviour
         }
     }
 
+    // --- NEW COROUTINE FOR SUCCESS MESSAGE ---
+    private IEnumerator ShowCollectionSuccess()
+    {
+        // lock the update loop so it doesn't overwrite our text
+        isShowingSuccessMessage = true; 
+        
+        debugStatus = "Added to Collection!";
+        
+        // Wait for 2 seconds (or however long your fly-away animation is)
+        yield return new WaitForSeconds(2.0f);
+        
+        // Unlock logic so it goes back to "Pack Found" or "Ready to Scan"
+        isShowingSuccessMessage = false;
+        
+        // Optional: If you destroy the pack after collection, you might want to reset text here
+        debugStatus = "Enjoying the app? Rate us!";
+    }
+
     public void ResetScanning()
     {
         isProcessingScan = false;
+        isShowingSuccessMessage = false; // Reset this flag too
         
         foreach (var pack in spawnedPacks.Values)
         {
@@ -187,10 +221,14 @@ public class ARImageTrackingManager : MonoBehaviour
              }
              else
              {
-                 if (trackedImage.trackingState == TrackingState.Limited)
-                    debugStatus = "Aligning Camera...\nHold Steady.";
-                 else
-                    debugStatus = "Scan the Logo to Begin";
+                 // Only update status if we aren't showing the success message
+                 if (!isShowingSuccessMessage)
+                 {
+                     if (trackedImage.trackingState == TrackingState.Limited)
+                        debugStatus = "Aligning Camera...\nHold Steady.";
+                     else
+                        debugStatus = "Scan the Logo to Begin";
+                 }
              }
         }
     }

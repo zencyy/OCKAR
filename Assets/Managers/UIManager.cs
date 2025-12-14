@@ -17,6 +17,7 @@ public class UIManager : MonoBehaviour
     [SerializeField] private GameObject collectionScreen;
     [SerializeField] private GameObject rewardsScreen;
     [SerializeField] private GameObject myVouchersScreen; 
+    [SerializeField] private GameObject customScreen; 
 
     [Header("AR Components")]
     [SerializeField] private Camera arCamera; 
@@ -47,6 +48,13 @@ public class UIManager : MonoBehaviour
     [SerializeField] private Button viewCollectionButton;
     [SerializeField] private Button viewRewardsButton; 
     [SerializeField] private Button logoutButton;
+    [SerializeField] private Button mainMenuCustomButton; 
+
+    [Header("Custom Screen UI")]
+    [SerializeField] private Button backFromCustomButton;
+
+    [SerializeField] private AudioSource uiAudioSource;
+    [SerializeField] private AudioClip claimSuccessSound;
 
     [Header("Scan Screen UI")]
     [SerializeField] private TextMeshProUGUI scanInstructionText;
@@ -69,15 +77,19 @@ public class UIManager : MonoBehaviour
     [SerializeField] private GameObject voucherCardPrefab; 
     [SerializeField] private Button backFromVouchersButton;
 
-    [Header("Notification")]
-    [SerializeField] private GameObject notificationPanel;
-    [SerializeField] private TextMeshProUGUI notificationText;
-    [SerializeField] private Image notificationIcon;
+    // --- CHANGED: NEW NOTIFICATION SYSTEM ---
+    [Header("Notification System")]
+    [SerializeField] private GameObject notificationPrefab;    // DRAG YOUR NEW PREFAB HERE
+    [SerializeField] private Transform notificationContainer;  // DRAG YOUR CONTAINER (LAYOUT GROUP) HERE
 
-    // Professional Colors
-    private Color colorSuccess = new Color(0f, 0.8f, 0.4f); // Emerald Green
-    private Color colorError = new Color(1f, 0.3f, 0.3f);   // Soft Red
-    private Color colorLoading = new Color(1f, 0.8f, 0f);   // Golden Yellow
+    // Text Colors (for Login/Signup status)
+    private Color colorSuccess = new Color(0f, 0.8f, 0.4f); 
+    private Color colorError = new Color(1f, 0.3f, 0.3f);   
+    private Color colorLoading = new Color(1f, 0.8f, 0f);   
+
+    // Background Colors (for Notification Cards)
+    private Color colorSuccessBg = new Color(0f, 0.6f, 0.3f, 0.95f); // Darker Green for card bg
+    private Color colorErrorBg = new Color(0.8f, 0.2f, 0.2f, 0.95f);   // Darker Red for card bg
 
     private readonly List<Action> _mainThreadActions = new List<Action>();
 
@@ -85,7 +97,7 @@ public class UIManager : MonoBehaviour
 
     private void Start()
     {
-        notificationPanel?.SetActive(false);
+        // notificationPanel logic removed here
         SetupButtonListeners();
 
         if (arCamera != null) arCamera.enabled = false;
@@ -122,10 +134,14 @@ public class UIManager : MonoBehaviour
         viewCollectionButton?.onClick.AddListener(OnViewCollectionClicked);
         viewRewardsButton?.onClick.AddListener(OnViewRewardsClicked); 
 
+        mainMenuCustomButton?.onClick.AddListener(ShowCustomScreen);
+
         // Back Buttons
         backFromScanButton?.onClick.AddListener(OnBackToMainMenu);
         backFromCollectionButton?.onClick.AddListener(OnBackToMainMenu);
         backFromRewardsButton?.onClick.AddListener(OnBackToMainMenu);
+
+        backFromCustomButton?.onClick.AddListener(OnBackToMainMenu);
         
         // Navigation
         goToMyVouchersButton?.onClick.AddListener(ShowMyVouchersScreen);
@@ -140,7 +156,11 @@ public class UIManager : MonoBehaviour
         signupPanel?.SetActive(false);
         ResetInputFields();
     }
-
+    public void ShowCustomScreen() 
+    { 
+        HideAllScreens(); 
+        customScreen?.SetActive(true); 
+    }
     public void ShowMainMenu()
     {
         HideAllScreens();
@@ -164,6 +184,7 @@ public class UIManager : MonoBehaviour
         rewardsScreen?.SetActive(false);
         myVouchersScreen?.SetActive(false);
         signupPanel?.SetActive(false);
+        customScreen?.SetActive(false);
     }
 
     private void ResetInputFields()
@@ -256,7 +277,7 @@ public class UIManager : MonoBehaviour
         });
     }
 
-    // --- FEEDBACK SYSTEM ---
+    // --- FEEDBACK SYSTEM (For Login/Signup Text) ---
 
     private void ShowStatus(TextMeshProUGUI targetText, string message, bool isSuccess, bool isLoading = false)
     {
@@ -353,6 +374,16 @@ public class UIManager : MonoBehaviour
 
     private void UpdateMainMenuStats()
     {
+        // 1. Get & Display Username
+        FirebaseManager.Instance.GetUsername(username => 
+        {
+            RunOnMainThread(() => {
+                if (welcomeText != null) 
+                    welcomeText.text = username;
+            });
+        });
+
+        // 2. Get Stats (Total Scans / Unique Items)
         FirebaseManager.Instance.GetUserStats((totalScans, uniqueItems) =>
         {
             RunOnMainThread(() => {
@@ -361,6 +392,7 @@ public class UIManager : MonoBehaviour
             });
         });
 
+        // 3. Get Rewards Count
         FirebaseManager.Instance.GetClaimedRewards(claimedRewards =>
         {
             RunOnMainThread(() => {
@@ -432,6 +464,12 @@ public class UIManager : MonoBehaviour
         {
             RunOnMainThread(() => {
                 if (success) {
+                    
+                    // --- NEW: Play Sound Effect ---
+                    if (uiAudioSource != null && claimSuccessSound != null)
+                        uiAudioSource.PlayOneShot(claimSuccessSound);
+                    // ------------------------------
+
                     ShowRewardNotification(item.itemName, item.rewardDescription);
                     LoadRewardProgress(); 
                 }
@@ -462,29 +500,45 @@ public class UIManager : MonoBehaviour
         });
     }
 
+    // --- CHANGED: NEW NOTIFICATION SYSTEM METHODS ---
+
     public void ShowCollectionNotification(ScanResult result) {
         if (result == null) return;
         ItemModel item = ItemDatabase.Instance.GetItem(result.itemId);
-        if (item == null) return;
-        notificationText.text = result.GetCongratsMessage();
-        if (notificationIcon != null) notificationIcon.sprite = item.itemSprite;
-        StartCoroutine(ShowNotificationRoutine());
+        
+        string msg = result.GetCongratsMessage();
+        Sprite icon = item != null ? item.itemSprite : null;
+        
+        // Spawn with Success Color
+        SpawnNotification(msg, icon, colorSuccessBg);
     }
 
     public void ShowRewardNotification(string itemName, string rewardDescription) {
-        notificationText.text = $"Reward Unlocked!\n{rewardDescription}\nfor collecting {itemName}!";
-        StartCoroutine(ShowNotificationRoutine());
+        string msg = $"Reward Unlocked!\n{rewardDescription}";
+        SpawnNotification(msg, null, colorSuccessBg);
     }
 
     public void ShowErrorNotification(string message) {
-        notificationText.text = $"{message}";
-        StartCoroutine(ShowNotificationRoutine());
+        SpawnNotification(message, null, colorErrorBg);
     }
 
-    private IEnumerator ShowNotificationRoutine() {
-        notificationPanel.SetActive(true);
-        yield return new WaitForSeconds(3f);
-        notificationPanel.SetActive(false);
+    // Helper Method to Instantiate the Card
+    private void SpawnNotification(string message, Sprite icon, Color color)
+    {
+        if (notificationPrefab == null || notificationContainer == null)
+        {
+            Debug.LogWarning("Notification Prefab or Container is not assigned in UIManager!");
+            return;
+        }
+
+        GameObject newNote = Instantiate(notificationPrefab, notificationContainer);
+        newNote.transform.localScale = Vector3.one;
+
+        NotificationCard cardScript = newNote.GetComponent<NotificationCard>();
+        if (cardScript != null)
+        {
+            cardScript.Setup(message, icon, color);
+        }
     }
 
     private void OnBackToMainMenu() { DisableARCamera(); ShowMainMenu(); }

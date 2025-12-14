@@ -107,7 +107,25 @@ public class FirebaseManager : MonoBehaviour
             callback?.Invoke(true, "Success");
         });
     }
+    public void GetUsername(Action<string> callback)
+        {
+            if (currentUser == null) return;
 
+            databaseReference.Child("users").Child(currentUser.UserId).Child("username")
+                .GetValueAsync().ContinueWith(task =>
+            {
+                if (task.IsCompleted && task.Result.Exists)
+                {
+                    // Return the actual username
+                    callback?.Invoke(task.Result.Value.ToString());
+                }
+                else
+                {
+                    // Fallback if not found
+                    callback?.Invoke("Player");
+                }
+            });
+        }
     public void SignOut() { auth.SignOut(); currentUser = null; }
 
     // --- SETUP ---

@@ -7,7 +7,7 @@ import { getDatabase, ref, onValue, update } from "https://www.gstatic.com/fireb
 // 1. Go to Firebase Console > Project Settings > General > Your Apps > Web
 // 2. Copy the config object and paste it below
 const firebaseConfig = {
-    apiKey: "AIzaSyC25G7Nyt3KZ1a9X9lYPIUenjRFeLtmKlg",
+    apiKey: "",
     authDomain: "ockar-71e31.firebaseapp.com",
     databaseURL: "https://ockar-71e31-default-rtdb.asia-southeast1.firebasedatabase.app", // Check your JSON file URL!
     projectId: "ockar-71e31",

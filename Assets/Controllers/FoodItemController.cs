@@ -8,8 +8,11 @@ public class FoodItemController : MonoBehaviour
     [SerializeField] private float targetScale = 0.05f;
     [SerializeField] private float scaleSpeed = 2f;
     [SerializeField] private float rotationSpeed = 60f;
-    // Removed displayDuration since we now wait for input
     
+    [Header("Audio")]
+    [SerializeField] private AudioSource audioSource;
+    [SerializeField] private AudioClip collectSound; // <-- DRAG YOUR SOUND HERE
+
     [Header("Particle Effects")]
     [SerializeField] private ParticleSystem spawnEffect;
     [SerializeField] private ParticleSystem rarityEffect;
@@ -23,6 +26,20 @@ public class FoodItemController : MonoBehaviour
         scanResult = result;
         itemModel = ItemDatabase.Instance.GetItem(result.itemId);
         
+        // --- AUTO-SETUP AUDIO SOURCE ---
+        if (audioSource == null)
+        {
+            audioSource = GetComponent<AudioSource>();
+            if (audioSource == null)
+            {
+                audioSource = gameObject.AddComponent<AudioSource>();
+            }
+        }
+        // Ensure sound is 2D (heard clearly)
+        audioSource.spatialBlend = 0.0f;
+        audioSource.playOnAwake = false;
+        // -------------------------------
+
         // Start at small scale
         transform.localScale = Vector3.one * spawnScale;
         
@@ -53,8 +70,7 @@ public class FoodItemController : MonoBehaviour
         
         transform.localScale = Vector3.one * targetScale;
         
-        // --- CHANGE: Wait Indefinitely ---
-        // Instead of waiting for seconds, we loop until CollectItem() is called externally
+        // Wait Indefinitely until user taps again
         while (!isCollecting)
         {
             transform.Rotate(Vector3.up, rotationSpeed * Time.deltaTime);
@@ -69,6 +85,13 @@ public class FoodItemController : MonoBehaviour
         
         isCollecting = true;
         
+        // --- PLAY SOUND HERE ---
+        if (audioSource != null && collectSound != null)
+        {
+            audioSource.PlayOneShot(collectSound);
+        }
+        // -----------------------
+
         // Trigger the fly away animation
         StartCoroutine(CollectAnimation());
     }

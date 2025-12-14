@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OCK AR Admin Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+
+    <div id="login-overlay">
+        <div class="login-box">
+            <h2>Admin Login</h2>
+            <input type="email" id="admin-email" placeholder="Admin Email">
+            <input type="password" id="admin-password" placeholder="Password">
+            <button onclick="login()">Login</button>
+            <p id="login-error" class="error-text"></p>
+        </div>
+    </div>
+
+    <div class="container" id="dashboard-container" style="display: none;">
+        
+        <aside class="sidebar">
+            <div class="logo">
+                <h2 style="display: flex; align-items: center; justify-content: center;">
+                    <img src="ocklogo.png" alt="OCK Logo" style="height: 40px; margin-right: 10px;"> 
+                    OCKAR Admin
+                </h2>
+            </div>
+            <nav>
+                <ul>
+                    <li onclick="showSection('overview')" class="active"><i class="fas fa-chart-line"></i> Overview</li>
+                    <li onclick="showSection('users')"><i class="fas fa-users"></i> User Management</li>
+                    <li onclick="showSection('items')"><i class="fas fa-box-open"></i> Game Items</li>
+                </ul>
+            </nav>
+            <button class="logout-btn" onclick="logout()"><i class="fas fa-sign-out-alt"></i> Logout</button>
+        </aside>
+
+        <main class="main-content">
+            
+            <div id="overview-section" class="section">
+                <h1>Dashboard Overview</h1>
+                <div class="stats-grid">
+                    <div class="card">
+                        <h3>Total Users</h3>
+                        <p id="total-users">Loading...</p>
+                    </div>
+                    <div class="card">
+                        <h3>Total Scans</h3>
+                        <p id="total-scans">Loading...</p>
+                    </div>
+                    <div class="card">
+                        <h3>Vouchers Issued</h3>
+                        <p id="total-vouchers">Loading...</p>
+                    </div>
+                </div>
+            </div>
+
+            <div id="users-section" class="section" style="display:none;">
+                <h1>User Management</h1>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Username</th>
+                                <th>Email</th>
+                                <th>Total Scans</th>
+                                <th>Vouchers</th>
+                                <th>Actions</th> </tr>
+                        </thead>
+                        <tbody id="users-table-body">
+                            </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div id="items-section" class="section" style="display:none;">
+                <h1>Game Configuration</h1>
+                <p class="subtext">Manage drop rates and reward thresholds.</p>
+                <div id="items-grid" class="items-grid">
+                    </div>
+            </div>
+
+        </main>
+    </div>
+
+    <div id="user-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal" onclick="closeUserModal()">&times;</span>
+            <h2 id="modal-username">Edit User</h2>
+            <input type="hidden" id="modal-userid">
+            
+            <div class="modal-grid">
+                <div>
+                    <h3>Stats</h3>
+                    <label>Total Scans:</label>
+                    <input type="number" id="modal-scans" class="full-width">
+                </div>
+
+                <div>
+                    <h3>Collection Counts</h3>
+                    <div id="modal-collection-list" class="scrollable-list">
+                        </div>
+                </div>
+            </div>
+
+            <h3>Active Vouchers</h3>
+            <div id="modal-vouchers-list" class="voucher-list">
+                </div>
+
+            <div class="modal-actions">
+                <button class="save-btn" onclick="saveUserChanges()">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="app.js"></script>
+</body>
+</html>
